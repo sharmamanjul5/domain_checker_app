@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Domain Availability Checker</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        input, button { padding: 10px; margin: 5px 0; }
+        .available { color: green; }
+        .unavailable { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Domain Availability Checker</h1>
+    <textarea id="domains" rows="5" cols="40" placeholder="Enter domain names, one per line"></textarea><br>
+    <button onclick="checkDomains()">Check Availability</button>
+
+    <h2>Results:</h2>
+    <ul id="results"></ul>
+
+    <script>
+        async function checkDomains() {
+            const domains = document.getElementById('domains').value.split('\n').map(d => d.trim()).filter(Boolean);
+            const response = await fetch('/check_domains', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ domains })
+            });
+            const results = await response.json();
+            const resultsList = document.getElementById('results');
+            resultsList.innerHTML = '';
+            results.forEach(r => {
+                const li = document.createElement('li');
+                li.textContent = `${r.domain} - ${r.available ? "Available" : "Unavailable"}`;
+                li.className = r.available ? "available" : "unavailable";
+                resultsList.appendChild(li);
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Domain Checker Dashboard</title>
+<style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #fafafa; }
+    textarea { width: 100%; height: 100px; }
+    input, button { padding: 8px; margin: 5px 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; background: white; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; cursor: pointer; }
+    th { background-color: #f2f2f2; user-select: none; }
+    .available { color: green; font-weight: bold; }
+    .unavailable { color: red; font-weight: bold; }
+    #filter { margin-top: 10px; padding: 8px; width: 200px; }
+    th .arrow { margin-left: 6px; font-size: 0.8em; opacity: 0.85; }
+    td .domain-text { margin-right: 6px; }
+    #loading { display: none; margin-top: 15px; text-align: center; }
+    #loading img { width: 60px; }
+</style>
+</head>
+<body>
+
+<!-- Header Banner GIF -->
+<div style="text-align:center;">
+    <img src="https://media.giphy.com/media/3o7aCTPPm4OHfRLSH6/giphy.gif" alt="Domain Checker" width="180">
+    <h1>Domain Checker Dashboard</h1>
+</div>
+
+<p>Enter domain names (one per line). Optional: base name + multiple TLDs separated by commas (e.g., tecboosters,.com,.net)</p>
+<textarea id="domains"></textarea><br>
+<button onclick="checkDomains()">🔍 Check Availability</button>
+
+<!-- Loading GIF -->
+<div id="loading">
+    <p>Checking domains, please wait...</p>
+    <img src="https://media.giphy.com/media/sSgvbe1m3n93G/giphy.gif" alt="Loading...">
+</div>
+
+<input type="text" id="filter" placeholder="🔎 Filter domains..." onkeyup="filterTable()">
+
+<table id="resultsTable" style="display:none;">
+    <thead>
+        <tr>
+            <th onclick="sortTable(0)">Domain <span class="arrow"></span></th>
+            <th onclick="sortTable(1)">Status <span class="arrow"></span></th>
+        </tr>
+    </thead>
+    <tbody id="resultsBody"></tbody>
+</table>
+
+<script>
+// Fetch results from backend
+async function checkDomains() {
+    const raw = document.getElementById('domains').value.split('\n');
+    let domains = [];
+
+    raw.forEach(line => {
+        line = line.trim();
+        if(!line) return;
+        if(line.includes(',')) {
+            const parts = line.split(',');
+            const base = parts[0];
+            const tlds = parts.slice(1);
+            tlds.forEach(tld => domains.push(base + tld));
+        } else domains.push(line);
+    });
+
+    if(domains.length === 0) { alert("Enter at least one domain"); return; }
+
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('resultsTable').style.display = 'none';
+
+    const response = await fetch('/check_domains', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ domains })
+    });
+
+    const results = await response.json();
+    displayResults(results);
+    document.getElementById('loading').style.display = 'none';
+}
+
+// Display results in table
+function displayResults(results) {
+    const table = document.getElementById('resultsTable');
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = '';
+
+    results.forEach(r => {
+        const tr = document.createElement('tr');
+
+        // Domain cell
+        const tdDomain = document.createElement('td');
+        const domainSpan = document.createElement('span');
+        domainSpan.className = 'domain-text';
+        domainSpan.textContent = r.domain;
+        tdDomain.appendChild(domainSpan);
+
+        // Status cell
+        const tdStatus = document.createElement('td');
+        tdStatus.textContent = r.available ? "Available" : "Unavailable";
+        tdStatus.className = r.available ? "available" : "unavailable";
+
+        tr.appendChild(tdDomain);
+        tr.appendChild(tdStatus);
+        tbody.appendChild(tr);
+    });
+
+    table.style.display = 'table';
+}
+
+// Filter table by domain
+function filterTable() {
+    const input = document.getElementById('filter').value.toLowerCase();
+    const table = document.getElementById('resultsTable');
+    const trs = table.tBodies[0].getElementsByTagName('tr');
+    for (let i = 0; i < trs.length; i++) {
+        const td = trs[i].getElementsByTagName('td')[0];
+        const domainSpan = td ? td.querySelector('.domain-text') : null;
+        const text = domainSpan ? domainSpan.textContent.toLowerCase() : '';
+        trs[i].style.display = text.includes(input) ? '' : 'none';
+    }
+}
+
+// Sort table columns
+window._sortDir = window._sortDir || {};
+function sortTable(n) {
+    const table = document.getElementById('resultsTable');
+    const tbody = table.tBodies[0];
+    if (!tbody) return;
+
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const newDir = window._sortDir[n] === 'asc' ? 'desc' : 'asc';
+    window._sortDir[n] = newDir;
+
+    const getCellValue = (row, idx) => {
+        const cell = row.children[idx];
+        if (!cell) return '';
+        const domainSpan = cell.querySelector('.domain-text');
+        const text = domainSpan ? domainSpan.textContent : cell.textContent;
+        return text.trim().toLowerCase();
+    };
+
+    rows.sort((a, b) => {
+        const aVal = getCellValue(a, n);
+        const bVal = getCellValue(b, n);
+        if (n === 1) { // Status column
+            const order = { 'available': 0, 'unavailable': 1 };
+            return newDir === 'asc' ? order[aVal] - order[bVal] : order[bVal] - order[aVal];
+        }
+        return newDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+
+    // Update header arrows
+    const ths = table.querySelectorAll('thead th');
+    ths.forEach((th, idx) => {
+        const arrow = th.querySelector('.arrow');
+        if (!arrow) return;
+        if (idx === n) arrow.textContent = newDir === 'asc' ? '▲' : '▼';
+        else arrow.textContent = '';
+    });
+
+    rows.forEach(row => tbody.appendChild(row));
+}
+</script>
+</body>
+</html>

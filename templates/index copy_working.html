@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Domain Checker Dashboard</title>
+<style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    textarea { width: 100%; height: 100px; }
+    input, button { padding: 8px; margin: 5px 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; cursor: pointer; }
+    th { background-color: #f2f2f2; }
+    .available { color: green; font-weight: bold; }
+    .unavailable { color: red; font-weight: bold; }
+    #filter { margin-top: 10px; padding: 8px; width: 200px; }
+    .copy-btn { cursor: pointer; color: blue; text-decoration: underline; margin-left: 5px; }
+</style>
+</head>
+<body>
+<h1>Domain Checker Dashboard</h1>
+<p>Enter domain names (one per line). Optional: base name + multiple TLDs separated by commas (e.g., tecboosters,.com,.net)</p>
+<textarea id="domains"></textarea><br>
+<button onclick="checkDomains()">Check Availability</button>
+
+<input type="text" id="filter" placeholder="Filter domains..." onkeyup="filterTable()">
+
+<table id="resultsTable" style="display:none;">
+    <thead>
+        <tr>
+            <th onclick="sortTable(0)">Domain ▲▼</th>
+            <th onclick="sortTable(1)">Status ▲▼</th>
+        </tr>
+    </thead>
+    <tbody id="resultsBody"></tbody>
+</table>
+
+<script>
+// Fetch results from backend
+// Live Filtering: Type in the filter box to show matching domains instantly.
+// Sorting: Click on table headers to sort by domain or availability.
+//Copy-to-Clipboard: Click [Copy] next to any domain to copy it instantly.
+//Async Backend: Handles hundreds of domains without slowing down.
+async function checkDomains() {
+    const raw = document.getElementById('domains').value.split('\n');
+    let domains = [];
+
+    raw.forEach(line => {
+        line = line.trim();
+        if(!line) return;
+        if(line.includes(',')) {
+            const parts = line.split(',');
+            const base = parts[0];
+            const tlds = parts.slice(1);
+            tlds.forEach(tld => domains.push(base + tld));
+        } else domains.push(line);
+    });
+
+    if(domains.length === 0) { alert("Enter at least one domain"); return; }
+
+    const response = await fetch('/check_domains', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ domains })
+    });
+
+    const results = await response.json();
+    displayResults(results);
+}
+
+// Display results in table
+function displayResults(results) {
+    const table = document.getElementById('resultsTable');
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = '';
+
+    results.forEach(r => {
+        const tr = document.createElement('tr');
+        const tdDomain = document.createElement('td');
+        const tdStatus = document.createElement('td');
+
+        tdDomain.textContent = r.domain;
+        const copyBtn = document.createElement('span');
+        copyBtn.textContent = "[Copy]";
+        copyBtn.className = "copy-btn";
+        copyBtn.onclick = () => navigator.clipboard.writeText(r.domain);
+        tdDomain.appendChild(copyBtn);
+
+        tdStatus.textContent = r.available ? "Available" : "Unavailable";
+        tdStatus.className = r.available ? "available" : "unavailable";
+
+        tr.appendChild(tdDomain);
+        tr.appendChild(tdStatus);
+        tbody.appendChild(tr);
+    });
+
+    table.style.display = 'table';
+}
+
+// Filter table by input
+function filterTable() {
+    const input = document.getElementById('filter').value.toLowerCase();
+    const table = document.getElementById('resultsTable');
+    const trs = table.getElementsByTagName('tr');
+    for (let i = 1; i < trs.length; i++) {
+        const td = trs[i].getElementsByTagName('td')[0];
+        trs[i].style.display = td.textContent.toLowerCase().includes(input) ? '' : 'none';
+    }
+}
+
+// Sort table columns
+function sortTable(n) {
+    const table = document.getElementById('resultsTable');
+    let switching = true, dir = "asc";
+    while (switching) {
+        switching = false;
+        const rows = table.rows;
+        for (let i = 1; i < rows.length - 1; i++) {
+            let shouldSwitch = false;
+            let x = rows[i].getElementsByTagName("TD")[n];
+            let y = rows[i + 1].getElementsByTagName("TD")[n];
+            if (dir === "asc" ? x.textContent.toLowerCase() > y.textContent.toLowerCase() : x.textContent.toLowerCase() < y.textContent.toLowerCase()) {
+                shouldSwitch = true; break;
+            }
+        }
+        if (shouldSwitch) {
+            rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+            switching = true;
+        } else if (dir === "asc") { dir = "desc"; switching = true; }
+    }
+}
+</script>
+</body>
+</html>

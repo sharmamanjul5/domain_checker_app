@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Domain Checker Dashboard</title>
+<style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    textarea { width: 100%; height: 100px; }
+    input, button { padding: 8px; margin: 5px 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; cursor: pointer; }
+    th { background-color: #f2f2f2; user-select: none; }
+    .available { color: green; font-weight: bold; }
+    .unavailable { color: red; font-weight: bold; }
+    #filter { margin-top: 10px; padding: 8px; width: 200px; }
+    .copy-btn { cursor: pointer; color: blue; text-decoration: underline; margin-left: 8px; font-size: 0.95em; }
+    th .arrow { margin-left: 6px; font-size: 0.8em; opacity: 0.85; }
+    td .domain-text { margin-right: 6px; }
+</style>
+</head>
+<body>
+<h1>Domain Checker Dashboard</h1>
+<p>Enter domain names (one per line). Optional: base name + multiple TLDs separated by commas (e.g., tecboosters,.com,.net)</p>
+<textarea id="domains"></textarea><br>
+<button onclick="checkDomains()">Check Availability</button>
+
+<input type="text" id="filter" placeholder="Filter domains..." onkeyup="filterTable()">
+
+<table id="resultsTable" style="display:none;">
+    <thead>
+        <tr>
+            <!-- Keep same look but add tiny arrow span (updated by JS) -->
+            <th onclick="sortTable(0)">Domain <span class="arrow"></span></th>
+            <th onclick="sortTable(1)">Status <span class="arrow"></span></th>
+        </tr>
+    </thead>
+    <tbody id="resultsBody"></tbody>
+</table>
+
+<script>
+// Fetch results from backend
+async function checkDomains() {
+    const raw = document.getElementById('domains').value.split('\n');
+    let domains = [];
+
+    raw.forEach(line => {
+        line = line.trim();
+        if(!line) return;
+        if(line.includes(',')) {
+            const parts = line.split(',');
+            const base = parts[0];
+            const tlds = parts.slice(1);
+            tlds.forEach(tld => domains.push(base + tld));
+        } else domains.push(line);
+    });
+
+    if(domains.length === 0) { alert("Enter at least one domain"); return; }
+
+    const response = await fetch('/check_domains', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ domains })
+    });
+
+    const results = await response.json();
+    displayResults(results);
+}
+
+/* Display results in table (creates .domain-text span and a [Copy] button) */
+function displayResults(results) {
+    const table = document.getElementById('resultsTable');
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = '';
+
+    results.forEach(r => {
+        const tr = document.createElement('tr');
+
+        // Domain cell with span + copy button
+        const tdDomain = document.createElement('td');
+        const domainSpan = document.createElement('span');
+        domainSpan.className = 'domain-text';
+        domainSpan.textContent = r.domain;
+        tdDomain.appendChild(domainSpan);
+
+        const copyBtn = document.createElement('span');
+        copyBtn.textContent = "[Copy]";
+        copyBtn.className = "copy-btn";
+        copyBtn.onclick = () => {
+            navigator.clipboard.writeText(r.domain).then(() => {
+                const previous = copyBtn.textContent;
+                copyBtn.textContent = '[Copied]';
+                setTimeout(() => copyBtn.textContent = previous, 900);
+            }).catch(() => { alert('Copy failed'); });
+        };
+        tdDomain.appendChild(copyBtn);
+
+        // Status cell
+        const tdStatus = document.createElement('td');
+        tdStatus.textContent = r.available ? "Available" : "Unavailable";
+        tdStatus.className = r.available ? "available" : "unavailable";
+
+        tr.appendChild(tdDomain);
+        tr.appendChild(tdStatus);
+        tbody.appendChild(tr);
+    });
+
+    table.style.display = 'table';
+}
+
+/* Filter table by domain (uses .domain-text so copy button doesn't interfere) */
+function filterTable() {
+    const input = document.getElementById('filter').value.toLowerCase();
+    const table = document.getElementById('resultsTable');
+    const trs = table.tBodies[0].getElementsByTagName('tr');
+    for (let i = 0; i < trs.length; i++) {
+        const td = trs[i].getElementsByTagName('td')[0];
+        const domainSpan = td ? td.querySelector('.domain-text') : null;
+        const text = domainSpan ? domainSpan.textContent.toLowerCase() : (td ? td.textContent.toLowerCase() : '');
+        trs[i].style.display = text.includes(input) ? '' : 'none';
+    }
+}
+
+/* Robust sorter: toggles asc/desc per column, ignores copy button text */
+window._sortDir = window._sortDir || {}; // store directions by column index
+function sortTable(n) {
+    const table = document.getElementById('resultsTable');
+    const tbody = table.tBodies[0];
+    if (!tbody) return;
+
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+
+    // Toggle direction for column n (default asc)
+    const newDir = window._sortDir[n] === 'asc' ? 'desc' : 'asc';
+    window._sortDir[n] = newDir;
+
+    const getCellValue = (row, idx) => {
+        const cell = row.children[idx];
+        if (!cell) return '';
+        const domainSpan = cell.querySelector('.domain-text');
+        const text = domainSpan ? domainSpan.textContent : cell.textContent;
+        return text.trim().toLowerCase();
+    };
+
+    rows.sort((a, b) => {
+        const aVal = getCellValue(a, n);
+        const bVal = getCellValue(b, n);
+
+        // If sorting the status column, order "available" before "unavailable" (logical ordering)
+        if (n === 1) {
+            const order = { 'available': 0, 'unavailable': 1 };
+            const aKey = (aVal in order) ? order[aVal] : 2;
+            const bKey = (bVal in order) ? order[bVal] : 2;
+            return newDir === 'asc' ? aKey - bKey : bKey - aKey;
+        }
+
+        // Numeric compare if both parse as numbers
+        const aNum = parseFloat(aVal);
+        const bNum = parseFloat(bVal);
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+            return newDir === 'asc' ? aNum - bNum : bNum - aNum;
+        }
+
+        // Fallback string comparison
+        return newDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+
+    // Update header arrows
+    const ths = table.querySelectorAll('thead th');
+    ths.forEach((th, idx) => {
+        const arrow = th.querySelector('.arrow');
+        if (!arrow) return;
+        if (idx === n) arrow.textContent = newDir === 'asc' ? '▲' : '▼';
+        else arrow.textContent = '';
+    });
+
+    // Re-attach rows in sorted order
+    rows.forEach(row => tbody.appendChild(row));
+}
+</script>
+</body>
+</html>
